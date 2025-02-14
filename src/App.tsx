@@ -245,18 +245,18 @@ interface HoursSummary {
   };
 }
 
-const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
-const SLOTS = ["9:00-10:00", "10:00-11:00", "11:00-12:00", "1:00-2:00", "2:00-3:00","3:00-4:00","4:00-5:00"];
-const SECTIONS = ["A", "B", "C", "D"];
-const FACULTIES = ["Faculty 1", "Faculty 2", "Faculty 3", "Faculty 4", "Faculty 5", "Faculty 6"];
-const YEARS = [1, 2, 3, 4];
-const SEMESTERS = [1, 2, 3, 4];
-
 interface YearSchedule {
   [year: number]: {
     [semester: number]: Schedule;
   };
 }
+
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const SLOTS = ["9:00-10:00", "10:00-11:00", "11:00-12:00", "1:00-2:00", "2:00-3:00", "3:00-4:00", "4:00-5:00"];
+const SECTIONS = ["A", "B", "C", "D"];
+const FACULTIES = ["Faculty 1", "Faculty 2", "Faculty 3", "Faculty 4", "Faculty 5", "Faculty 6"];
+const YEARS = [1, 2, 3, 4];
+const SEMESTERS = [1, 2, 3, 4];
 
 function App() {
   const [selectedYear, setSelectedYear] = useState(1);
@@ -265,7 +265,6 @@ function App() {
   const [selectedSubject, setSelectedSubject] = useState("");
   const [selectedFaculty, setSelectedFaculty] = useState(FACULTIES[0]);
   const [yearSchedule, setYearSchedule] = useState<YearSchedule>({});
-  const [facultyLoad, setFacultyLoad] = useState<{[key: string]: number}>({});
   const [history, setHistory] = useState<HistoryState[]>([]);
   const [hoursSummary, setHoursSummary] = useState<HoursSummary>({});
   const [selectedFacultyView, setSelectedFacultyView] = useState<string>('');
@@ -315,24 +314,49 @@ function App() {
     faculty: string,
     day: string,
     slot: string,
-    schedule: Schedule
+    year: number,
+    semester: number
   ) => {
-    return !SECTIONS.some(section => 
-      schedule[section][day][slot].faculty === faculty
-    );
+    // Check all years and semesters for conflicts
+    for (const yr of YEARS) {
+      for (const sem of SEMESTERS) {
+        const schedule = yearSchedule[yr]?.[sem];
+        if (!schedule) continue;
+
+        // Check if faculty is already teaching in this slot
+        const isTeaching = SECTIONS.some(section => 
+          schedule[section]?.[day]?.[slot]?.faculty === faculty
+        );
+
+        if (isTeaching) return false;
+      }
+    }
+
+    // Check if faculty has a break (1 hour free) in this day
+    const schedule = yearSchedule[year][semester];
+    const daySlots = SLOTS.filter(s => {
+      return !SECTIONS.some(section => 
+        schedule[section]?.[day]?.[s]?.faculty === faculty
+      );
+    });
+
+    // Must have at least one free slot in the day
+    return daySlots.length > 1;
   };
 
   const findAvailableSlot = (
     section: string,
-    schedule: Schedule,
+    year: number,
+    semester: number,
     faculty: string,
     type: string
   ) => {
     for (const day of DAYS) {
       for (const slot of SLOTS) {
+        const schedule = yearSchedule[year][semester];
         if (
           !schedule[section][day][slot].subject &&
-          isFacultyAvailable(faculty, day, slot, schedule)
+          isFacultyAvailable(faculty, day, slot, year, semester)
         ) {
           return { day, slot };
         }
@@ -383,25 +407,22 @@ function App() {
     const currentSchedule = getCurrentSchedule();
     setHistory(prev => [...prev, { 
       schedule: JSON.parse(JSON.stringify(currentSchedule)),
-      facultyLoad: { ...facultyLoad }
+      facultyLoad: {}
     }]);
 
     const course = courses[selectedBasket][selectedSubject];
     const newSchedule = { ...currentSchedule };
-    const newFacultyLoad = { ...facultyLoad };
-
-    if (!newFacultyLoad[selectedFaculty]) {
-      newFacultyLoad[selectedFaculty] = 0;
-    }
-
-    const MAX_FACULTY_LOAD = 15;
 
     // Assign theory classes
     for (let i = 0; i < course.theory; i++) {
       for (const section of SECTIONS) {
-        if (newFacultyLoad[selectedFaculty] >= MAX_FACULTY_LOAD) continue;
-
-        const availableSlot = findAvailableSlot(section, newSchedule, selectedFaculty, 'theory');
+        const availableSlot = findAvailableSlot(
+          section,
+          selectedYear,
+          selectedSemester,
+          selectedFaculty,
+          'theory'
+        );
         if (availableSlot) {
           const { day, slot } = availableSlot;
           newSchedule[section][day][slot] = {
@@ -409,7 +430,6 @@ function App() {
             faculty: selectedFaculty,
             type: 'theory'
           };
-          newFacultyLoad[selectedFaculty]++;
         }
       }
     }
@@ -417,9 +437,13 @@ function App() {
     // Assign practical classes
     for (let i = 0; i < course.practical; i++) {
       for (const section of SECTIONS) {
-        if (newFacultyLoad[selectedFaculty] >= MAX_FACULTY_LOAD) continue;
-
-        const availableSlot = findAvailableSlot(section, newSchedule, selectedFaculty, 'practical');
+        const availableSlot = findAvailableSlot(
+          section,
+          selectedYear,
+          selectedSemester,
+          selectedFaculty,
+          'practical'
+        );
         if (availableSlot) {
           const { day, slot } = availableSlot;
           newSchedule[section][day][slot] = {
@@ -427,7 +451,6 @@ function App() {
             faculty: selectedFaculty,
             type: 'practical'
           };
-          newFacultyLoad[selectedFaculty]++;
         }
       }
     }
@@ -435,9 +458,13 @@ function App() {
     // Assign project classes
     for (let i = 0; i < course.project; i++) {
       for (const section of SECTIONS) {
-        if (newFacultyLoad[selectedFaculty] >= MAX_FACULTY_LOAD) continue;
-
-        const availableSlot = findAvailableSlot(section, newSchedule, selectedFaculty, 'project');
+        const availableSlot = findAvailableSlot(
+          section,
+          selectedYear,
+          selectedSemester,
+          selectedFaculty,
+          'project'
+        );
         if (availableSlot) {
           const { day, slot } = availableSlot;
           newSchedule[section][day][slot] = {
@@ -445,7 +472,6 @@ function App() {
             faculty: selectedFaculty,
             type: 'project'
           };
-          newFacultyLoad[selectedFaculty]++;
         }
       }
     }
@@ -454,7 +480,6 @@ function App() {
     newYearSchedule[selectedYear][selectedSemester] = newSchedule;
 
     setYearSchedule(newYearSchedule);
-    setFacultyLoad(newFacultyLoad);
     calculateHoursSummary(newSchedule);
   };
 
@@ -465,7 +490,6 @@ function App() {
       newYearSchedule[selectedYear][selectedSemester] = previousState.schedule;
       
       setYearSchedule(newYearSchedule);
-      setFacultyLoad(previousState.facultyLoad);
       setHistory(prev => prev.slice(0, -1));
       calculateHoursSummary(previousState.schedule);
     }
@@ -478,23 +502,41 @@ function App() {
           subject: string;
           section: string;
           type: string;
+          year: number;
+          semester: number;
         }[];
       };
     } = {};
 
+    // Initialize the schedule structure
     DAYS.forEach(day => {
       facultySchedule[day] = {};
       SLOTS.forEach(slot => {
         facultySchedule[day][slot] = [];
-        SECTIONS.forEach(section => {
-          const timeSlot = getCurrentSchedule()[section]?.[day]?.[slot];
-          if (timeSlot && timeSlot.faculty === facultyName) {
-            facultySchedule[day][slot].push({
-              subject: timeSlot.subject,
-              section: section,
-              type: timeSlot.type
+      });
+    });
+
+    // Check all years and semesters
+    YEARS.forEach(year => {
+      SEMESTERS.forEach(semester => {
+        const schedule = yearSchedule[year]?.[semester];
+        if (!schedule) return;
+
+        DAYS.forEach(day => {
+          SLOTS.forEach(slot => {
+            SECTIONS.forEach(section => {
+              const timeSlot = schedule[section]?.[day]?.[slot];
+              if (timeSlot && timeSlot.faculty === facultyName) {
+                facultySchedule[day][slot].push({
+                  subject: timeSlot.subject,
+                  section: section,
+                  type: timeSlot.type,
+                  year: year,
+                  semester: semester
+                });
+              }
             });
-          }
+          });
         });
       });
     });
@@ -669,7 +711,7 @@ function App() {
                                     <div key={idx} className="bg-blue-50 p-2 rounded">
                                       <div className="font-medium text-blue-900">{cls.subject}</div>
                                       <div className="text-xs text-blue-700">
-                                        Section {cls.section} - {cls.type}
+                                        Year {cls.year}, Sem {cls.semester}, Sec {cls.section} - {cls.type}
                                       </div>
                                     </div>
                                   ))}
